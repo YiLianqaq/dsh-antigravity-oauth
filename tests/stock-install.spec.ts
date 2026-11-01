@@ -15,7 +15,7 @@ const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
 }
 const readme = readFileSync(join(root, 'README.md'), 'utf8')
 const readmeZh = readFileSync(join(root, 'README.zh.md'), 'utf8')
-const stockCommand = 'dsh plugin --profile web add github:aa2246740/dsh-antigravity-oauth'
+const stockCommand = 'dsh plugin --profile web add github:YukieMiona/dsh-antigravity-oauth'
 
 describe('stock dsh plugin add', () => {
   it('can mount this package as a bundle without prepare', () => {

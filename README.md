@@ -11,7 +11,7 @@ English | [中文](README.zh.md)
 Open **Settings → Plugins → Add plugin** and enter this in “Package name or address”:
 
 ```text
-github:aa2246740/dsh-antigravity-oauth
+github:YukieMiona/dsh-antigravity-oauth
 ```
 
 The desktop plugin manager owns the Desktop profile and bundled package manager. This release includes `lib/`; normal use needs no clone, build, or DSHX installation. Follow the app if it asks you to reload or reopen after installation.
@@ -19,7 +19,7 @@ The desktop plugin manager owns the Desktop profile and bundled package manager.
 ### Web CLI
 
 ```sh
-dsh plugin --profile web add github:aa2246740/dsh-antigravity-oauth
+dsh plugin --profile web add github:YukieMiona/dsh-antigravity-oauth
 ```
 
 This official CLI command writes only the `web` profile; it cannot modify the Desktop App profile. For an already-running Web Host, reopen that Host once and reload the page.
@@ -29,7 +29,7 @@ Package **0.2.3**. DeepSeek Harness **0.2.0-rc.2** (client peers `>=0.2.0-rc.1 <
 If `dsh` is not on PATH:
 
 ```sh
-npx @deepseek-ai/dsh plugin --profile web add github:aa2246740/dsh-antigravity-oauth
+npx @deepseek-ai/dsh plugin --profile web add github:YukieMiona/dsh-antigravity-oauth
 ```
 
 The public CLI manages `web` only; use the in-app “Add plugin” entry above for the Desktop App.
@@ -37,7 +37,7 @@ The public CLI manages `web` only; use the in-app “Add plugin” entry above f
 From a local clone (development/local testing), keep the `file:` prefix so Host peers resolve:
 
 ```sh
-git clone https://github.com/aa2246740/dsh-antigravity-oauth.git
+git clone https://github.com/YukieMiona/dsh-antigravity-oauth.git
 dsh plugin --profile web add file:./dsh-antigravity-oauth
 ```
 
@@ -196,9 +196,10 @@ This plugin optionally supports integrating with [gemini-web2api-go](https://git
 - **Independent Provider Route**: Models registered under Web2API use the `agy-web` prefix (e.g. `agy-web/gemini-2.5-flash`), completely decoupled from the primary `agy-google-antigravity/gemini-3.8-flash` route.
 - **Image Generation**: Supports optional Imagen 3 image generation via the self-hosted Web proxy.
 
-### Credits & Attribution
+## Credits
 
-Special thanks to **[@zexadev](https://github.com/zexadev)** for creating and maintaining [gemini-web2api-go](https://github.com/zexadev/gemini-web2api-go), which powers the reverse-proxy protocol handling and inspiration for this auxiliary feature.
+- Originally forked from [aa2246740/dsh-antigravity-oauth](https://github.com/aa2246740/dsh-antigravity-oauth).
+- Web2API integration based on [gemini-web2api-go](https://github.com/zexadev/gemini-web2api-go) by [@zexadev](https://github.com/zexadev).
 
 ---
 

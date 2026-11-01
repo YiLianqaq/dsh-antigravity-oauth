@@ -11,7 +11,7 @@
 打开 **设置 → 插件 → 添加插件**，在“包名或地址”中输入：
 
 ```text
-github:aa2246740/dsh-antigravity-oauth
+github:YukieMiona/dsh-antigravity-oauth
 ```
 
 桌面端插件管理器负责 Desktop profile 和内置包管理器。本发布包含 `lib/`；普通使用不需要 clone、构建或安装 DSHX。若应用提示刷新或重新打开，请按提示完成。
@@ -19,7 +19,7 @@ github:aa2246740/dsh-antigravity-oauth
 ### Web CLI
 
 ```sh
-dsh plugin --profile web add github:aa2246740/dsh-antigravity-oauth
+dsh plugin --profile web add github:YukieMiona/dsh-antigravity-oauth
 ```
 
 这条官方 CLI 命令只写入 `web` profile，不能修改 Desktop App 的 profile。对于已经运行的 Web Host，请重新打开该 Host 一次，再刷新网页。
@@ -29,7 +29,7 @@ dsh plugin --profile web add github:aa2246740/dsh-antigravity-oauth
 `dsh` 不在 PATH 时：
 
 ```sh
-npx @deepseek-ai/dsh plugin --profile web add github:aa2246740/dsh-antigravity-oauth
+npx @deepseek-ai/dsh plugin --profile web add github:YukieMiona/dsh-antigravity-oauth
 ```
 
 官方 CLI 只管理 `web` profile；Desktop App 请使用上面的应用内“添加插件”入口。
@@ -37,7 +37,7 @@ npx @deepseek-ai/dsh plugin --profile web add github:aa2246740/dsh-antigravity-o
 本地 clone（开发/本地测试）请保留 `file:` 前缀，否则 Host 的 peer 依赖经常解析不到：
 
 ```sh
-git clone https://github.com/aa2246740/dsh-antigravity-oauth.git
+git clone https://github.com/YukieMiona/dsh-antigravity-oauth.git
 dsh plugin --profile web add file:./dsh-antigravity-oauth
 ```
 
@@ -198,9 +198,10 @@ CCA 请求会通过 undici `ProxyAgent` 走 `HTTPS_PROXY` / `HTTP_PROXY` / `http
 - **独立路由隔离**：Web2API 注册的模型使用独立的 `agy-web` 提供方（例如 `agy-web/gemini-2.5-flash`），与主线 `agy-google-antigravity/gemini-3.8-flash` 互不干扰。
 - **生图能力补充**：借助自建网页端反代，为 DSH 提供可选的 Imagen 3 图片生成支持。
 
-### 致谢与项目鸣谢 (Credits)
+## 致谢
 
-衷心感谢 **[@zexadev](https://github.com/zexadev)** 开发并开源的 [gemini-web2api-go](https://github.com/zexadev/gemini-web2api-go) 项目。该项目为本扩展特性的反代协议对接与设计提供了重要参考和支持。
+- 源自 [aa2246740/dsh-antigravity-oauth](https://github.com/aa2246740/dsh-antigravity-oauth)。
+- Web2API 网关基于 [@zexadev](https://github.com/zexadev) 开源的 [gemini-web2api-go](https://github.com/zexadev/gemini-web2api-go)。
 
 ---
 

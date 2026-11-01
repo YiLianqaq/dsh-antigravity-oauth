@@ -141,10 +141,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/aa2246740/dsh-antigravity-oauth.git"
+    "url": "git+https://github.com/YukieMiona/dsh-antigravity-oauth.git"
   },
-  "homepage": "https://github.com/aa2246740/dsh-antigravity-oauth#readme",
+  "homepage": "https://github.com/YukieMiona/dsh-antigravity-oauth#readme",
   "bugs": {
-    "url": "https://github.com/aa2246740/dsh-antigravity-oauth/issues"
+    "url": "https://github.com/YukieMiona/dsh-antigravity-oauth/issues"
   }
 }
