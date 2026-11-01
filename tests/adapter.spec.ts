@@ -617,3 +617,232 @@ describe('AntigravityAdapter model catalog', () => {
     expect(resolved.id).toBe('gemini-3.7-flash')
   })
 })
+
+describe('AntigravityAdapter multimodal image input', () => {
+  it('converts user image block to Gemini inlineData part with base64 payload', async () => {
+    const fake = fakeSession({ chat: [{ type: 'text', text: 'I see the image' }, { type: 'finish', reason: 'STOP' }] })
+    const imageBytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    const mockAttachments = {
+      readImage: async (ref: any) => ({
+        ref: { ...ref, mediaType: 'image/png' },
+        data: imageBytes,
+      }),
+    } as any
+
+    const adapter = createAntigravityAdapter(fake.session, {
+      nativeTools: true,
+      nativeSearch: true,
+      resolveAttachments: () => mockAttachments,
+    })
+
+    const messages = [{
+      id: 'u1',
+      role: 'user',
+      source: { kind: 'user' },
+      content: [
+        { type: 'text', text: 'Please analyze this photo' },
+        {
+          type: 'image',
+          attachment: {
+            attachmentId: 'att-img-1',
+            mediaType: 'image/png',
+            name: 'sample.png',
+          },
+        },
+      ],
+    }] as any
+
+    await collect(adapter.stream({
+      provider: 'agy-google-antigravity',
+      model: 'gemini-3.8-flash',
+      messages,
+      tools: [],
+    } as any))
+
+    expect(fake.chatBodies).toHaveLength(1)
+    const userParts = fake.chatBodies[0].contents[0].parts
+    expect(userParts).toHaveLength(2)
+    expect(userParts[0]).toEqual({ text: 'Please analyze this photo' })
+    expect(userParts[1]).toEqual({
+      inlineData: {
+        mimeType: 'image/png',
+        data: Buffer.from(imageBytes).toString('base64'),
+      },
+    })
+  })
+
+  it('preserves interleaved order of text and image blocks', async () => {
+    const fake = fakeSession({ chat: [{ type: 'text', text: 'ok' }, { type: 'finish', reason: 'STOP' }] })
+    const imgData = Uint8Array.from([0xff, 0xd8, 0xff])
+    const mockAttachments = {
+      readImage: async (ref: any) => ({
+        ref: { ...ref, mediaType: 'image/jpeg' },
+        data: imgData,
+      }),
+    } as any
+
+    const adapter = createAntigravityAdapter(fake.session, {
+      nativeTools: true,
+      nativeSearch: true,
+      resolveAttachments: () => mockAttachments,
+    })
+
+    const messages = [{
+      id: 'u1',
+      role: 'user',
+      source: { kind: 'user' },
+      content: [
+        { type: 'text', text: 'First diagram:' },
+        { type: 'image', attachment: { attachmentId: 'img1', mediaType: 'image/jpeg' } },
+        { type: 'text', text: 'Second diagram:' },
+        { type: 'image', attachment: { attachmentId: 'img2', mediaType: 'image/jpeg' } },
+      ],
+    }] as any
+
+    await collect(adapter.stream({
+      provider: 'agy-google-antigravity',
+      model: 'gemini-3.8-flash',
+      messages,
+      tools: [],
+    } as any))
+
+    const parts = fake.chatBodies[0].contents[0].parts
+    expect(parts).toHaveLength(4)
+    expect(parts[0]).toEqual({ text: 'First diagram:' })
+    expect(parts[1]).toEqual({ inlineData: { mimeType: 'image/jpeg', data: Buffer.from(imgData).toString('base64') } })
+    expect(parts[2]).toEqual({ text: 'Second diagram:' })
+    expect(parts[3]).toEqual({ inlineData: { mimeType: 'image/jpeg', data: Buffer.from(imgData).toString('base64') } })
+  })
+
+  it('gracefully degrades to text placeholder if storage read fails or is missing', async () => {
+    const fake = fakeSession({ chat: [{ type: 'text', text: 'ok' }, { type: 'finish', reason: 'STOP' }] })
+    const brokenAttachments = {
+      readImage: async () => { throw new Error('disk read failed') },
+    } as any
+
+    const adapter = createAntigravityAdapter(fake.session, {
+      nativeTools: true,
+      nativeSearch: true,
+      resolveAttachments: () => brokenAttachments,
+    })
+
+    const messages = [{
+      id: 'u1',
+      role: 'user',
+      source: { kind: 'user' },
+      content: [
+        { type: 'image', attachment: { attachmentId: 'bad-img', name: 'missing.png' } },
+      ],
+    }] as any
+
+    await collect(adapter.stream({
+      provider: 'agy-google-antigravity',
+      model: 'gemini-3.8-flash',
+      messages,
+      tools: [],
+    } as any))
+
+    const parts = fake.chatBodies[0].contents[0].parts
+    expect(parts).toHaveLength(1)
+    expect(parts[0]).toEqual({ text: '[Image: missing.png]' })
+  })
+
+  it('converts offloaded image to placeholder text saving prompt budget', async () => {
+    const fake = fakeSession({ chat: [{ type: 'text', text: 'ok' }, { type: 'finish', reason: 'STOP' }] })
+    const adapter = createAntigravityAdapter(fake.session, {
+      nativeTools: true,
+      nativeSearch: true,
+    })
+
+    const messages = [{
+      id: 'u1',
+      role: 'user',
+      source: { kind: 'user' },
+      content: [
+        { type: 'image', attachment: { attachmentId: 'offloaded-1', name: 'chart.png' }, offloaded: true },
+      ],
+    }] as any
+
+    await collect(adapter.stream({
+      provider: 'agy-google-antigravity',
+      model: 'gemini-3.8-flash',
+      messages,
+      tools: [],
+    } as any))
+
+    const parts = fake.chatBodies[0].contents[0].parts
+    expect(parts).toHaveLength(1)
+    expect(parts[0]).toEqual({ text: '[Image: chart.png (offloaded)]' })
+  })
+
+  it('falls back to placeholder text when stored image data is 0 bytes', async () => {
+    const fake = fakeSession({ chat: [{ type: 'text', text: 'ok' }, { type: 'finish', reason: 'STOP' }] })
+    const emptyAttachments = {
+      readImage: async (ref: any) => ({
+        ref: { ...ref, mediaType: 'image/png' },
+        data: new Uint8Array(0),
+      }),
+    } as any
+
+    const adapter = createAntigravityAdapter(fake.session, {
+      nativeTools: true,
+      nativeSearch: true,
+      resolveAttachments: () => emptyAttachments,
+    })
+
+    const messages = [{
+      id: 'u1',
+      role: 'user',
+      source: { kind: 'user' },
+      content: [
+        { type: 'image', attachment: { attachmentId: 'zero-byte', name: 'empty.png' } },
+      ],
+    }] as any
+
+    await collect(adapter.stream({
+      provider: 'agy-google-antigravity',
+      model: 'gemini-3.8-flash',
+      messages,
+      tools: [],
+    } as any))
+
+    const parts = fake.chatBodies[0].contents[0].parts
+    expect(parts).toHaveLength(1)
+    expect(parts[0]).toEqual({ text: '[Image: empty.png]' })
+  })
+
+  it('rethrows abort signal error instead of swallowing it when user cancels', async () => {
+    const fake = fakeSession({})
+    const abortController = new AbortController()
+    abortController.abort(new Error('User aborted'))
+
+    const abortingAttachments = {
+      readImage: async () => {
+        throw new Error('Operation aborted')
+      },
+    } as any
+
+    const adapter = createAntigravityAdapter(fake.session, {
+      nativeTools: true,
+      nativeSearch: true,
+      resolveAttachments: () => abortingAttachments,
+    })
+
+    const messages = [{
+      id: 'u1',
+      role: 'user',
+      source: { kind: 'user' },
+      content: [
+        { type: 'image', attachment: { attachmentId: 'img', name: 'pic.png' } },
+      ],
+    }] as any
+
+    await expect(collect(adapter.stream({
+      provider: 'agy-google-antigravity',
+      model: 'gemini-3.8-flash',
+      messages,
+      tools: [],
+      signal: abortController.signal,
+    } as any))).rejects.toThrow()
+  })
+})

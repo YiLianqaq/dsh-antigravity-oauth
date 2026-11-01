@@ -73,10 +73,51 @@ function textOf(blocks: readonly ContentBlock[]): string {
     .join('')
 }
 
-function convertMessages(
+async function userPartsOf(
+  blocks: readonly ContentBlock[],
+  attachments?: AttachmentStore,
+  signal?: AbortSignal,
+): Promise<GeminiPart[]> {
+  const parts: GeminiPart[] = []
+  for (const block of blocks) {
+    if (block.type === 'text') {
+      if (block.text.length > 0) parts.push({ text: block.text })
+      continue
+    }
+    if (block.type === 'image') {
+      if (block.offloaded === true) {
+        const name = block.attachment?.name || block.attachment?.attachmentId || 'image'
+        parts.push({ text: `[Image: ${name} (offloaded)]` })
+        continue
+      }
+      if (attachments !== undefined && block.attachment !== undefined) {
+        try {
+          const stored = await attachments.readImage(block.attachment, signal)
+          if (stored?.data && stored.data.length > 0) {
+            const data = Buffer.from(stored.data).toString('base64')
+            const mimeType = stored.ref?.mediaType || block.attachment?.mediaType || 'image/png'
+            parts.push({ inlineData: { mimeType, data } })
+            continue
+          }
+        } catch (error) {
+          if (signal?.aborted) throw error
+          // Graceful fallback to placeholder text if storage read fails
+        }
+      }
+      const name = block.attachment?.name || block.attachment?.attachmentId || 'image'
+      parts.push({ text: `[Image: ${name}]` })
+      continue
+    }
+  }
+  return parts
+}
+
+async function convertMessages(
   messages: GenerateOptions['messages'],
   thoughtSignatures: ReadonlyMap<string, string>,
-): GeminiContent[] {
+  attachments?: AttachmentStore,
+  signal?: AbortSignal,
+): Promise<GeminiContent[]> {
   const toolNames = new Map<string, string>()
   for (const message of messages) {
     if (message.role !== 'assistant') continue
@@ -158,8 +199,8 @@ function convertMessages(
       continue
     }
     if (message.role === 'user') {
-      const text = textOf(message.content)
-      if (text.length > 0) contents.push({ role: 'user', parts: [{ text }] })
+      const parts = await userPartsOf(message.content, attachments, signal)
+      if (parts.length > 0) contents.push({ role: 'user', parts })
     }
   }
   if (contents.length === 0) contents.push({ role: 'user', parts: [{ text: '' }] })
@@ -273,10 +314,16 @@ export class AntigravityAdapter extends LlmAdapter {
     const effort = effortOf(options)
     const wire = routeChatModel(options.model, effort)
     const functions = functionsFor(options, this.options.nativeSearch)
+    const contents = await convertMessages(
+      options.messages,
+      this.session.thoughtSignatures,
+      this.options.resolveAttachments?.(),
+      options.signal,
+    )
     const input: ChatGenerateInput = {
       kind: 'chat',
       model: wire,
-      contents: convertMessages(options.messages, this.session.thoughtSignatures),
+      contents,
       ...options.system === undefined || options.system.length === 0 ? {} : { system: options.system },
       functions,
       ...thinkingLevelFor(options.model, effort) === undefined
