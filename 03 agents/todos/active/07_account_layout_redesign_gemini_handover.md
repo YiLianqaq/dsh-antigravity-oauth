@@ -1,8 +1,46 @@
 # Account layout redesign: Gemini handover
 
+## 0. Compact revision approved on 2026-10-30
+
+The user requested implementation with: "From the html I can't see compact UI being modified. Please resume". This revision replaces the older compact-mode rules below. Normal view keeps its approved layout and behavior, except for clearer dividers.
+
+Compact mode shows each account on one physical line. It shows identity, state, the 5-hour and 7-day quota values, and actions. Quota tracks and reset details remain in normal view.
+
+Long identities use ellipsis instead of wrapping. Both quota cells and actions stay visible at the reviewed widths. Full identity remains in accessible text and normal view.
+
+Use clearer 2px theme-aware account dividers in both modes. Keep the quiet list surface. Do not add a bright active-row tint or outline.
+
+Store the compact preference in this browser. Closing settings, page reloads, and browser restarts keep the choice. Use one preference implementation for production and the preview.
+
+Change Necessity: the current compact mode only changes spacing, and its selection resets when the settings component mounts. Documentation cannot change these behaviors. The minimum code boundary is the account component, styles, and the settings preference owner.
+
+TDD Route: off, skipped. Add post-change regression tests. ArchitectureReviewRequired: false for this owner-local UI change with no backend schema or wire-format change.
+
+The clean baseline is 6230d6d078b40719128d9cf869eff4322f018e3f. The [TaskStartSnapshot](</root/Desktop/Project/2026/active/1005 dsh-antigravity-oauth/000 temp/active/1030/03_intermediate/account_compact_revision_task_start.json>) records 67 fingerprints. Stop if an unrelated actor changes an input before its edit.
+
+Execute this revision in this order:
+
+1. Read the current UI owners and the baseline.
+2. Implement the one-line compact summary and clearer dividers.
+3. Save and restore the preference at its existing UI owner.
+4. Add regression tests for layout structure, preference lifetime, and unchanged behavior.
+5. Run typecheck, the full test suite, and the build serially.
+6. Generate a new offline preview from the changed production source.
+7. Open the preview in compact mode by default for the first demo visit.
+8. Review the source diff and preview independently.
+9. Deliver the new preview for local visual approval before publication.
+
+The preview must use fake accounts and mock actions. It must not make network requests. It must exercise the same preference owner as production.
+
+The independent suite passes 168 tests. Typecheck, the build, and diff tests also pass. The compiled preview passes 59 additional tests in HappyDOM.
+
+The [acceptance record](</root/Desktop/Project/2026/active/1005 dsh-antigravity-oauth/000 temp/active/1030/03_intermediate/account_compact_revision_coordinator_acceptance.json>) records the result. Native browser acceptance remains NOT RUN. The installed frontend and backend remain unchanged.
+
+Keep backend source and installed artifacts unchanged. Do not change Git history. Do not restart the host. Do not install dependencies.
+
 ## 1. Delivery status and authority
 
-This document proposes a new account layout. The user requested design and a detailed handover, not another implementation or deployment. The design remains pending user approval.
+The user approved the normal layout earlier. The resume request on 2026-10-30 authorizes the compact UI revision in section 0. That request authorizes source changes and an offline preview, not publication.
 
 The user reports unequal quota bars, accidental wrapping, detached identity text, and controls that depend on translated text width. The user also requires minimal visible copy. Layout must explain the interface without helper paragraphs or repeated labels.
 

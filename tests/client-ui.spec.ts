@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { AccountsTab, type AccountsTabProps } from '../src/client/tabs/AccountsTab.tsx'
-import { AntigravitySettings } from '../src/client/Settings.tsx'
+import { AntigravitySettings, COMPACT_VIEW_KEY } from '../src/client/Settings.tsx'
 import { SETTINGS_CSS } from '../src/client/theme.ts'
 import { en, zh, type AntigravityKey } from '../src/client/locales.ts'
 import type { AccountQuotaSummary, AccountSummary } from '../src/types.ts'
@@ -551,8 +551,169 @@ describe('Mounted Settings with isolated fetch', () => {
   })
 })
 
+describe('Compact summary contracts, not native geometry proof', () => {
+  it.each(['en', 'zh'] as const)('keeps both values and accessible quota meanings in %s compact rows', async language => {
+    const tr = translate(language)
+    const partial = quota('not-a-date')
+    partial.groups![0].buckets = [partial.groups![0].buckets[1]]
+    const zero = quota('2000-01-01T00:00:00Z')
+    zero.groups![0].buckets[0].remainingFraction = 0
+    for (const summary of [undefined, { accountId: 'one', ok: false }, { accountId: 'one', ok: true, groups: [] }, partial, zero]) {
+      await render(React.createElement(AccountsTab, defaults({ compactView: true, t: tr, language, quotas: summary ? { one: summary } : {} })))
+      const row = container.querySelector('.dsh-agy-account')!
+      const meters = Array.from(row.querySelectorAll('[role="progressbar"]'))
+      expect(meters).toHaveLength(2)
+      expect(meters.every(meter => meter.classList.contains('dsh-agy-quota-row-label'))).toBe(true)
+      expect(Array.from(row.querySelectorAll('.dsh-agy-quota-period')).map(el => el.textContent)).toEqual([tr('quota5hCompact'), tr('quotaWeeklyCompact')])
+      for (const [index, meter] of meters.entries()) {
+        const value = summary === zero ? [0, 50][index] : summary === partial && index === 1 ? 50 : undefined
+        const period = tr(index === 0 ? 'quota5h' : 'quotaWeekly')
+        expect(meter.querySelector('.dsh-agy-quota-pct')!.textContent).toBe(value === undefined ? '—' : value + '%')
+        expect(meter.getAttribute('aria-label')).toBe(value === undefined ? tr(summary ? 'meterUnknownAria' : 'meterPendingAria', { period }) : tr('meterAria', { period, pct: value }))
+        for (const attribute of ['aria-valuenow', 'aria-valuemin', 'aria-valuemax']) expect(meter.hasAttribute(attribute)).toBe(value !== undefined)
+        expect(meter.getAttribute('aria-valuenow')).toBe(value === undefined ? null : String(value))
+      }
+      expect(row.querySelector('.is-remove-btn')).toBeNull()
+      expect(row.querySelectorAll('.dsh-agy-quota-track[role]')).toHaveLength(0)
+    }
+  })
+  it('hides only compact tracks and reset details and preserves actions, identity, and state labels', async () => {
+    const style = document.createElement('style')
+    style.textContent = SETTINGS_CSS
+    document.head.append(style)
+    const email = 'a-very-long-address.with.extra.parts.for.ellipsis@example.test'
+    const fixtures = [accounts[0], { ...accounts[1], email, dead: true }]
+    const props = defaults({ compactView: true, accounts: fixtures, filteredAccounts: fixtures, switchingId: 'two' })
+    await render(React.createElement(AccountsTab, props))
+    const row = container.querySelectorAll('.dsh-agy-account')[1]
+    expect(button(email).title).toBe(email)
+    expect(row.querySelector('.dsh-agy-account-email-text')!.textContent).toBe(email)
+    expect(button(t('removeAccountAria', { email })).disabled).toBe(true)
+    for (const key of ['working', 'accountLimited', 'accountNeedsRelogin'] as const) {
+      const state = Array.from(row.querySelectorAll('.dsh-agy-status-badge')).find(el => el.getAttribute('aria-label') === t(key))!
+      expect(state.getAttribute('title')).toBe(t(key))
+      expect(state.getAttribute('role')).toBe('img')
+      expect(state.textContent!.length).toBe(1)
+    }
+    for (const selector of ['.dsh-agy-quota-track', '.dsh-agy-quota-reset', '.dsh-agy-account-quota-state']) {
+      expect(getComputedStyle(row.querySelector(selector)!).display).toBe('none')
+    }
+    expect(getComputedStyle(row.querySelector('.dsh-agy-account-email-text')!).whiteSpace).toBe('nowrap')
+    expect(getComputedStyle(row.querySelector('.dsh-agy-account-header')!).display).toBe('contents')
+    expect(getComputedStyle(row.querySelector('.dsh-agy-account-action')!).width).toBe('28px')
+    await render(React.createElement(AccountsTab, { ...props, compactView: false, switchingId: null }))
+    expect(getComputedStyle(container.querySelector('.dsh-agy-quota-track')!).display).not.toBe('none')
+    expect(getComputedStyle(container.querySelector('.dsh-agy-quota-reset')!).display).not.toBe('none')
+    expect(getComputedStyle(container.querySelectorAll('.dsh-agy-account-email-text')[1]).whiteSpace).toBe('normal')
+    expect(container.textContent).toContain(t('accountNeedsRelogin'))
+    expect(container.textContent).toContain(t('accountLimited'))
+  })
+  it('keeps normal layout inside an unrelated compact host wrapper', async () => {
+    const style = document.createElement('style')
+    style.textContent = SETTINGS_CSS
+    document.head.append(style)
+    await render(React.createElement('div', { className: 'is-compact' }, React.createElement(AccountsTab, defaults())))
+    const row = container.querySelector<HTMLElement>('.dsh-agy-account')!
+    expect(row.classList.contains('is-compact')).toBe(false)
+    expect(getComputedStyle(row).display).toBe('flex')
+    expect(getComputedStyle(row).flexDirection).toBe('column')
+    expect(getComputedStyle(row.querySelector('.dsh-agy-account-header')!).display).toBe('grid')
+    expect(getComputedStyle(row.querySelector('.dsh-agy-account-info')!).flexWrap).toBe('wrap')
+    expect(getComputedStyle(row.querySelector('.dsh-agy-account-email-text')!).whiteSpace).toBe('normal')
+    for (const selector of ['.dsh-agy-quota-track', '.dsh-agy-quota-reset']) {
+      for (const element of row.querySelectorAll(selector)) expect(getComputedStyle(element).display).not.toBe('none')
+    }
+    const pendingRow = container.querySelectorAll('.dsh-agy-account')[1]
+    expect(getComputedStyle(pendingRow.querySelector('.dsh-agy-account-quota-state')!).display).not.toBe('none')
+    expect(SETTINGS_CSS).not.toMatch(/(^|\n)\.is-compact /)
+  })
+  it('keeps compact identity and Remove as separate guarded actions', async () => {
+    const props = defaults({ compactView: true })
+    await render(React.createElement(AccountsTab, props))
+    await click(container.querySelectorAll<HTMLElement>('.dsh-agy-account-metrics')[1])
+    expect(props.switchAccount).not.toHaveBeenCalled()
+    await click(button(t('removeAccountAria', { email: accounts[1].email })))
+    expect(props.removeAccount).toHaveBeenCalledExactlyOnceWith('two')
+    expect(props.switchAccount).not.toHaveBeenCalled()
+    await click(button('two@example.test'))
+    expect(props.switchAccount).toHaveBeenCalledExactlyOnceWith(accounts[1])
+  })
+})
+
+describe('Compact preference at the real Settings owner', () => {
+  const toggle = () => container.querySelector<HTMLInputElement>('.dsh-agy-control-label input[type="checkbox"]')!
+  async function remount() {
+    await act(async () => root.unmount())
+    root = createRoot(container)
+    await render(React.createElement(AntigravitySettings, { t }))
+  }
+  it.each([null, 'false', 'true', 'invalid'])('restores the stored value %s without rewriting it on mount', async stored => {
+    stubSettings()
+    if (stored !== null) localStorage.setItem(COMPACT_VIEW_KEY, stored)
+    await render(React.createElement(AntigravitySettings, { t }))
+    expect(toggle().checked).toBe(stored === 'true')
+    expect(localStorage.getItem(COMPACT_VIEW_KEY)).toBe(stored)
+  })
+  it.each([false, true])('keeps selection %s through tabs, close/reopen, and a mocked browser reload', async selected => {
+    stubSettings()
+    localStorage.setItem(COMPACT_VIEW_KEY, String(!selected))
+    await render(React.createElement(AntigravitySettings, { t }))
+    await click(toggle())
+    expect(toggle().checked).toBe(selected)
+    expect(localStorage.getItem(COMPACT_VIEW_KEY)).toBe(String(selected))
+    await click(button(en.tabAdvanced))
+    await click(button(en.tabAccounts))
+    expect(toggle().checked).toBe(selected)
+    await remount()
+    expect(toggle().checked).toBe(selected)
+    // A fresh storage facade represents the browser restoring its saved disk values.
+    const saved = new Map([[COMPACT_VIEW_KEY, localStorage.getItem(COMPACT_VIEW_KEY)!]])
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => saved.get(key) ?? null,
+      setItem: (key: string, value: string) => { saved.set(key, value) },
+    })
+    await remount()
+    expect(toggle().checked).toBe(selected)
+    expect(container.querySelector('.is-compact-mode') !== null).toBe(selected)
+  })
+  it.each(['methods', 'getter'])('keeps actual Settings usable when all storage access throws via %s', async failure => {
+    stubSettings()
+    const blocked = () => { throw new Error('All browser storage access blocked') }
+    if (failure === 'getter') {
+      vi.stubGlobal('localStorage', undefined)
+      Object.defineProperty(globalThis, 'localStorage', { configurable: true, get: blocked })
+    } else {
+      vi.spyOn(localStorage, 'getItem').mockImplementation(blocked)
+      vi.spyOn(localStorage, 'setItem').mockImplementation(blocked)
+      vi.spyOn(localStorage, 'removeItem').mockImplementation(blocked)
+    }
+    await render(React.createElement(AntigravitySettings, { t }))
+    expect(toggle().checked).toBe(false)
+    await click(toggle())
+    expect(toggle().checked).toBe(true)
+    await click(toggle())
+    expect(toggle().checked).toBe(false)
+    await click(button(en.dismissNotice))
+    expect(container.textContent).not.toContain(en.tos)
+    await click(button(en.restoreNotice))
+    expect(container.textContent).toContain(en.tos)
+    await click(button(en.tabWeb2api))
+    await click(button(en.hideGuide))
+    await click(button(en.showGuide))
+    expect(button(en.hideGuide)).toBeDefined()
+  })
+  it('uses a safe default without browser storage', async () => {
+    stubSettings()
+    vi.stubGlobal('localStorage', undefined)
+    await render(React.createElement(AntigravitySettings, { t }))
+    expect(toggle().checked).toBe(false)
+    await click(toggle())
+    expect(toggle().checked).toBe(true)
+  })
+})
+
 describe('Theme source contracts, not browser layout proof', () => {
-  it('defines shared grid rows, wrapping, density spacing, and stable scroller space', () => {
+  it('preserves normal shared grid rows and defines a distinct compact summary', () => {
     const rule = (selector: string) => {
       const start = SETTINGS_CSS.indexOf(selector + ' {')
       expect(start, selector).toBeGreaterThanOrEqual(0)
@@ -568,11 +729,23 @@ describe('Theme source contracts, not browser layout proof', () => {
     expect(rule('.dsh-agy-account').padding).toBe('12px')
     expect(rule('.dsh-agy-account').gap).toBe('8px')
     expect(rule('.dsh-agy-account.is-compact').padding).toBe('6px 12px')
-    expect(rule('.dsh-agy-account.is-compact').gap).toBe('4px')
+    expect(rule('.dsh-agy-account.is-compact').gap).toBe('8px')
+    expect(rule('.dsh-agy-account.is-compact').display).toBe('grid')
+    expect(rule('.dsh-agy-account.is-compact').gridTemplateColumns).toBe('minmax(0, 1fr) max-content 28px')
+    expect(rule('.dsh-agy-account.is-compact').whiteSpace).toBe('nowrap')
+    expect(rule('.dsh-agy-account.is-compact .dsh-agy-account-metrics').gridTemplateColumns).toBe('repeat(2, max-content)')
+    expect(rule('.dsh-agy-account.is-compact .dsh-agy-account-metrics').gridTemplateRows).toBe('auto')
+    expect(rule('.dsh-agy-account.is-compact .dsh-agy-account-header').display).toBe('contents')
+    expect(rule('.dsh-agy-account.is-compact .dsh-agy-account-action').gridColumn).toBe('3')
+    expect(rule('.dsh-agy-account.is-compact .dsh-agy-account-action').gridRow).toBe('1')
+    expect(rule('.dsh-agy-account.is-compact .dsh-agy-account-email-text').textOverflow).toBe('ellipsis')
+    expect(rule('.dsh-agy-account.is-compact .dsh-agy-account-email-text').whiteSpace).toBe('nowrap')
+    expect(rule('.dsh-agy-account-email-text').whiteSpace).toBe('normal')
+    expect(rule('.dsh-agy-account-email-text').overflowWrap).toBe('anywhere')
+    // Happy DOM misparses a variable in the border shorthand as its width.
+    expect(SETTINGS_CSS).toContain('.dsh-agy-account + .dsh-agy-account {\n  border-top: 2px solid var(--dsw-alias-border-l3, GrayText);\n}')
     expect(rule('.dsh-agy-account').getPropertyValue('--quota-track-gap')).toBe('4px')
-    expect(rule('.dsh-agy-account.is-compact').getPropertyValue('--quota-track-gap')).toBe('3px')
     expect(rule('.dsh-agy-account').getPropertyValue('--quota-cell-gap')).toBe('12px')
-    expect(rule('.dsh-agy-account.is-compact').getPropertyValue('--quota-cell-gap')).toBe('8px')
     expect(rule('.dsh-agy-account-metrics').display).toBe('grid')
     expect(rule('.dsh-agy-account-metrics').gridTemplateRows).toBe('auto 4px auto auto 4px auto')
     expect(rule('.dsh-agy-account-metrics').columnGap).toBe('16px')
@@ -591,7 +764,7 @@ describe('Theme source contracts, not browser layout proof', () => {
     expect(rule('.dsh-agy-account-action').width).toBe('28px')
     for (const name of ['info', 'mail', 'email-text']) expect(Number.parseFloat(rule('.dsh-agy-account-' + name).minWidth)).toBe(0)
     expect(rule('.dsh-agy-account-mail').padding).toBe('0px')
-    expect(SETTINGS_CSS.split('.dsh-agy-account-mail {')).toHaveLength(2)
+    expect(SETTINGS_CSS.match(/^\.dsh-agy-account-mail \{/gm)).toHaveLength(1)
     expect(SETTINGS_CSS).not.toContain('.dsh-agy-account.is-active {')
     expect(SETTINGS_CSS).not.toContain('.dsh-agy-account:hover {')
     const wide = SETTINGS_CSS.slice(SETTINGS_CSS.indexOf('@container agy-accounts (min-width: 440px)'))

@@ -15,6 +15,7 @@ const WEB2API_SETTINGS_PATH = '/plugins/dsh-antigravity-oauth/web2api/settings'
 const WEB2API_TEST_PATH = '/plugins/dsh-antigravity-oauth/web2api/test'
 
 const DOCKER_CMD = 'docker run -d --name gemini-web2api -p 18088:18088 zexadev/gemini-web2api-go:latest'
+export const COMPACT_VIEW_KEY = 'dsh-antigravity-oauth.compact-view'
 const DISMISSED_BANNER_KEY = 'dsh-antigravity-oauth.dismissed-banner'
 const DISMISSED_WEB2API_GUIDE_KEY = 'dsh-antigravity-oauth.dismissed-web2api-guide'
 
@@ -68,7 +69,15 @@ export function AntigravitySettings({ t }: AntigravitySettingsProps) {
   const [quotas, setQuotas] = useState<Record<string, AccountQuotaSummary>>({})
   const [loadingQuotas, setLoadingQuotas] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [compactView, setCompactView] = useState(false)
+  const [compactView, setCompactViewState] = useState(() => {
+    try { return localStorage.getItem(COMPACT_VIEW_KEY) === 'true' }
+    catch { return false }
+  })
+  const setCompactView = (compact: boolean) => {
+    setCompactViewState(compact)
+    // Storage can be blocked. Keep the control usable for this mount.
+    try { localStorage.setItem(COMPACT_VIEW_KEY, String(compact)) } catch {}
+  }
   const [sortBy, setSortBy] = useState<'default' | 'quota'>('default')
 
   // Advanced settings state
@@ -80,18 +89,14 @@ export function AntigravitySettings({ t }: AntigravitySettingsProps) {
 
   // One-time dismissible banner state (persisted)
   const [bannerDismissed, setBannerDismissed] = useState<boolean>(() => {
-    if (typeof localStorage !== 'undefined') {
-      return localStorage.getItem(DISMISSED_BANNER_KEY) === 'true'
-    }
-    return false
+    try { return localStorage.getItem(DISMISSED_BANNER_KEY) === 'true' }
+    catch { return false }
   })
 
   // Web2API quick setup guide dismiss state
   const [guideDismissed, setGuideDismissed] = useState<boolean>(() => {
-    if (typeof localStorage !== 'undefined') {
-      return localStorage.getItem(DISMISSED_WEB2API_GUIDE_KEY) === 'true'
-    }
-    return false
+    try { return localStorage.getItem(DISMISSED_WEB2API_GUIDE_KEY) === 'true' }
+    catch { return false }
   })
 
   // Network state
@@ -201,28 +206,22 @@ export function AntigravitySettings({ t }: AntigravitySettingsProps) {
 
   const dismissGuide = () => {
     setGuideDismissed(true)
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(DISMISSED_WEB2API_GUIDE_KEY, 'true')
-    }
+    try { localStorage.setItem(DISMISSED_WEB2API_GUIDE_KEY, 'true') } catch {}
   }
 
   const restoreGuide = () => {
     setGuideDismissed(false)
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem(DISMISSED_WEB2API_GUIDE_KEY)
-    }
+    try { localStorage.removeItem(DISMISSED_WEB2API_GUIDE_KEY) } catch {}
   }
 
   const dismissBanner = () => {
     setBannerDismissed(true)
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(DISMISSED_BANNER_KEY, 'true')
-    }
+    try { localStorage.setItem(DISMISSED_BANNER_KEY, 'true') } catch {}
   }
 
   const restoreBanner = () => {
     setBannerDismissed(false)
-    if (typeof localStorage !== 'undefined') localStorage.removeItem(DISMISSED_BANNER_KEY)
+    try { localStorage.removeItem(DISMISSED_BANNER_KEY) } catch {}
   }
 
   const saveNetwork = async () => {

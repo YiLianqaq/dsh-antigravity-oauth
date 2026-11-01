@@ -228,13 +228,13 @@ export function AccountsTab(props: AccountsTabProps) {
                           )}
                         </button>
                         {isSwitching ? (
-                          <span className="dsh-agy-status-badge is-switching">{t('working')}</span>
+                          <span className="dsh-agy-status-badge is-switching" title={t('working')} role={compactView ? 'img' : undefined} aria-label={compactView ? t('working') : undefined}>{compactView ? '…' : t('working')}</span>
                         ) : null}
                         {account.limited ? (
-                          <span className="dsh-agy-status-badge is-error">{t('accountLimited')}</span>
+                          <span className="dsh-agy-status-badge is-error" title={t('accountLimited')} role={compactView ? 'img' : undefined} aria-label={compactView ? t('accountLimited') : undefined}>{compactView ? '!' : t('accountLimited')}</span>
                         ) : null}
                         {account.dead ? (
-                          <span className="dsh-agy-status-badge is-error">{t('accountNeedsRelogin')}</span>
+                          <span className="dsh-agy-status-badge is-error" title={t('accountNeedsRelogin')} role={compactView ? 'img' : undefined} aria-label={compactView ? t('accountNeedsRelogin') : undefined}>{compactView ? '×' : t('accountNeedsRelogin')}</span>
                         ) : null}
                       </div>
 
@@ -260,21 +260,24 @@ export function AccountsTab(props: AccountsTabProps) {
                     <div className="dsh-agy-account-metrics">
                       {cells.map(({ period, value: rawValue, deadline, countdown }, index) => {
                         const value = Number.isFinite(rawValue) ? rawValue : undefined
+                        const meter = {
+                          role: 'progressbar',
+                          'aria-label': value === undefined
+                            ? t(pending ? 'meterPendingAria' : 'meterUnknownAria', { period })
+                            : t('meterAria', { period, pct: value }),
+                          'aria-valuenow': value,
+                          'aria-valuemin': value !== undefined ? 0 : undefined,
+                          'aria-valuemax': value !== undefined ? 100 : undefined,
+                        }
                         return (
                           <div className="dsh-agy-quota-col" key={index}>
-                            <div className="dsh-agy-quota-row-label">
-                              <span className="dsh-agy-quota-period">{period}</span>
+                            <div className="dsh-agy-quota-row-label" {...compactView ? meter : {}} title={compactView ? meter['aria-label'] : undefined}>
+                              <span className="dsh-agy-quota-period">{compactView ? t(index === 0 ? 'quota5hCompact' : 'quotaWeeklyCompact') : period}</span>
                               <span className="dsh-agy-quota-pct">{value !== undefined ? `${value}%` : '—'}</span>
                             </div>
                             <div
                               className="dsh-agy-quota-track"
-                              role="progressbar"
-                              aria-label={value === undefined
-                                ? t(pending ? 'meterPendingAria' : 'meterUnknownAria', { period })
-                                : t('meterAria', { period, pct: value })}
-                              aria-valuenow={value}
-                              aria-valuemin={value !== undefined ? 0 : undefined}
-                              aria-valuemax={value !== undefined ? 100 : undefined}
+                              {...!compactView ? meter : {}}
                             >
                               <div
                                 className={'dsh-agy-capsule-fill ' + (value !== undefined ? (value > 40 ? 'is-high' : value > 15 ? 'is-med' : 'is-low') : '')}

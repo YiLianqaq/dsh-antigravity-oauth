@@ -374,13 +374,15 @@ export const SETTINGS_CSS = `
   min-width: 0;
 }
 .dsh-agy-account + .dsh-agy-account {
-  border-top: 1px solid var(--dsw-alias-border-l1, rgba(128, 128, 128, 0.12));
+  border-top: 2px solid var(--dsw-alias-border-l3, GrayText);
 }
 .dsh-agy-account.is-compact {
-  --quota-track-gap: 3px;
-  --quota-cell-gap: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content 28px;
+  align-items: center;
   padding: 6px 12px;
-  gap: 4px;
+  gap: 8px;
+  white-space: nowrap;
 }
 .dsh-agy-account-header {
   display: grid;
@@ -418,9 +420,8 @@ export const SETTINGS_CSS = `
 .dsh-agy-account-mail:disabled { cursor: default; }
 .dsh-agy-account-email-text {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .dsh-agy-account-check {
   display: inline-flex;
@@ -592,6 +593,49 @@ export const SETTINGS_CSS = `
   }
   .dsh-agy-quota-col:nth-child(2) .dsh-agy-quota-row-label { margin-top: 0; }
 }
+
+/* Compact rows reserve quota and action space. Only the identity can shrink. */
+.dsh-agy-account.is-compact .dsh-agy-account-header { display: contents; }
+.dsh-agy-account.is-compact .dsh-agy-account-info {
+  grid-column: 1;
+  grid-row: 1;
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+.dsh-agy-account.is-compact .dsh-agy-account-mail { flex: 1; }
+.dsh-agy-account.is-compact .dsh-agy-account-email-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+.dsh-agy-account.is-compact .dsh-agy-status-badge {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+}
+.dsh-agy-account.is-compact .dsh-agy-account-action { grid-column: 3; grid-row: 1; }
+.dsh-agy-account.is-compact .dsh-agy-account-metrics {
+  grid-column: 2;
+  grid-row: 1;
+  grid-template-columns: repeat(2, max-content);
+  grid-template-rows: auto;
+  column-gap: 12px;
+  row-gap: 0;
+  width: auto;
+}
+.dsh-agy-account.is-compact .dsh-agy-quota-col { display: block; }
+.dsh-agy-account.is-compact .dsh-agy-quota-row-label {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 4px;
+  white-space: nowrap;
+}
+.dsh-agy-account.is-compact .dsh-agy-quota-col:nth-child(2) .dsh-agy-quota-row-label { margin-top: 0; }
+.dsh-agy-account.is-compact .dsh-agy-quota-track,
+.dsh-agy-account.is-compact .dsh-agy-quota-reset,
+.dsh-agy-account.is-compact .dsh-agy-account-quota-state { display: none; }
 
 /* Radio Cards (Advanced) */
 .dsh-agy-radio-card {
