@@ -1,3 +1,6 @@
+import { existsSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { LlmAdapter, LlmError, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type {
   ContentBlock,
@@ -76,6 +79,7 @@ function textOf(blocks: readonly ContentBlock[]): string {
 function convertMessages(
   messages: GenerateOptions['messages'],
   thoughtSignatures: ReadonlyMap<string, string>,
+  attachments?: AttachmentStore,
 ): GeminiContent[] {
   const toolNames = new Map<string, string>()
   for (const message of messages) {
@@ -158,8 +162,39 @@ function convertMessages(
       continue
     }
     if (message.role === 'user') {
-      const text = textOf(message.content)
-      if (text.length > 0) contents.push({ role: 'user', parts: [{ text }] })
+      const parts: GeminiPart[] = []
+      for (const block of message.content) {
+        if (block.type === 'text' && block.text.length > 0) {
+          parts.push({ text: block.text })
+        } else if (block.type === 'image' && block.attachment) {
+          try {
+            let imgPath: string | undefined
+            if (attachments && typeof attachments.imageHostPath === 'function') {
+              imgPath = attachments.imageHostPath(block.attachment)
+            }
+            if (!imgPath || !existsSync(imgPath)) {
+              const id = block.attachment.attachmentId
+              if (typeof id === 'string' && id.startsWith('sha256:')) {
+                const sha = id.slice(7)
+                const dshHome = process.env.DSH_HOME || join(homedir(), '.dsh')
+                imgPath = join(dshHome, 'attachments', 'v1', 'objects', sha.slice(0, 2), sha)
+              }
+            }
+            if (imgPath && existsSync(imgPath)) {
+              const b64 = readFileSync(imgPath).toString('base64')
+              parts.push({
+                inlineData: {
+                  mimeType: block.attachment.mediaType || 'image/jpeg',
+                  data: b64,
+                },
+              })
+            }
+          } catch {
+            // Ignore unreadable image attachment
+          }
+        }
+      }
+      if (parts.length > 0) contents.push({ role: 'user', parts })
     }
   }
   if (contents.length === 0) contents.push({ role: 'user', parts: [{ text: '' }] })
@@ -276,7 +311,11 @@ export class AntigravityAdapter extends LlmAdapter {
     const input: ChatGenerateInput = {
       kind: 'chat',
       model: wire,
-      contents: convertMessages(options.messages, this.session.thoughtSignatures),
+      contents: convertMessages(
+        options.messages,
+        this.session.thoughtSignatures,
+        this.options.resolveAttachments?.(),
+      ),
       ...options.system === undefined || options.system.length === 0 ? {} : { system: options.system },
       functions,
       ...thinkingLevelFor(options.model, effort) === undefined
