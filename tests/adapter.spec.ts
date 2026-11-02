@@ -845,4 +845,82 @@ describe('AntigravityAdapter multimodal image input', () => {
       signal: abortController.signal,
     } as any))).rejects.toThrow()
   })
+
+  it('converts tool result image blocks to Gemini inlineData alongside functionResponse', async () => {
+    const fake = fakeSession({ chat: [{ type: 'text', text: 'Inspected tool image' }, { type: 'finish', reason: 'STOP' }] })
+    const imageBytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x01, 0x02, 0x03, 0x04])
+    const mockAttachments = {
+      readImage: async (ref: any) => ({
+        ref: { ...ref, mediaType: 'image/jpeg' },
+        data: imageBytes,
+      }),
+    } as any
+
+    const adapter = createAntigravityAdapter(fake.session, {
+      nativeTools: true,
+      nativeSearch: true,
+      resolveAttachments: () => mockAttachments,
+    })
+
+    const messages = [
+      {
+        id: 'a1',
+        role: 'assistant',
+        source: { kind: 'model' },
+        content: [
+          {
+            type: 'tool-call',
+            id: 'call_read_img_1',
+            name: 'read_image',
+            arguments: '{"file_path":"test.jpg"}',
+            thoughtSignature: 'sig-test',
+          },
+        ],
+      },
+      {
+        id: 't1',
+        role: 'tool',
+        source: { kind: 'tool', callId: 'call_read_img_1' },
+        toolCallId: 'call_read_img_1',
+        content: [
+          { type: 'text', text: '<path>test.jpg</path><type>image</type>' },
+          {
+            type: 'image',
+            attachment: {
+              attachmentId: 'att-tool-img-1',
+              mediaType: 'image/jpeg',
+              name: 'test.jpg',
+            },
+          },
+        ],
+      },
+    ] as any
+
+    await collect(adapter.stream({
+      provider: 'agy-google-antigravity',
+      model: 'gemini-3.8-flash',
+      messages,
+      tools: [{ name: 'read_image', description: 'read img', parameters: { type: 'object' } }],
+    } as any))
+
+    expect(fake.chatBodies).toHaveLength(1)
+    const contents = fake.chatBodies[0].contents
+    expect(contents).toHaveLength(2)
+    const toolContent = contents[1]
+    expect(toolContent.role).toBe('user')
+    expect(toolContent.parts).toHaveLength(2)
+    expect(toolContent.parts[0]).toEqual({
+      functionResponse: {
+        name: 'read_image',
+        id: 'call_read_img_1',
+        response: { result: '<path>test.jpg</path><type>image</type>' },
+      },
+    })
+    expect(toolContent.parts[1]).toEqual({
+      inlineData: {
+        mimeType: 'image/jpeg',
+        data: Buffer.from(imageBytes).toString('base64'),
+      },
+    })
+  })
 })
