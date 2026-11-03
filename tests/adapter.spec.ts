@@ -846,7 +846,7 @@ describe('AntigravityAdapter multimodal image input', () => {
     } as any))).rejects.toThrow()
   })
 
-  it('converts tool result image blocks to Gemini inlineData alongside functionResponse', async () => {
+  it('converts tool result image blocks to Gemini inlineData within functionResponse', async () => {
     const fake = fakeSession({ chat: [{ type: 'text', text: 'Inspected tool image' }, { type: 'finish', reason: 'STOP' }] })
     const imageBytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x01, 0x02, 0x03, 0x04])
     const mockAttachments = {
@@ -908,19 +908,263 @@ describe('AntigravityAdapter multimodal image input', () => {
     expect(contents).toHaveLength(2)
     const toolContent = contents[1]
     expect(toolContent.role).toBe('user')
-    expect(toolContent.parts).toHaveLength(2)
+    expect(toolContent.parts).toHaveLength(1)
     expect(toolContent.parts[0]).toEqual({
       functionResponse: {
         name: 'read_image',
         id: 'call_read_img_1',
         response: { result: '<path>test.jpg</path><type>image</type>' },
+        parts: [
+          {
+            inlineData: {
+              mimeType: 'image/jpeg',
+              data: Buffer.from(imageBytes).toString('base64'),
+            },
+          },
+        ],
       },
     })
-    expect(toolContent.parts[1]).toEqual({
-      inlineData: {
-        mimeType: 'image/jpeg',
-        data: Buffer.from(imageBytes).toString('base64'),
-      },
+  })
+
+  it('appends degraded and offloaded image placeholders to response.result', async () => {
+    const fake = fakeSession({ chat: [{ type: 'text', text: 'Handled degraded image' }, { type: 'finish', reason: 'STOP' }] })
+    const mockAttachments = {
+      readImage: async () => ({
+        ref: { mediaType: 'image/jpeg' },
+        data: new Uint8Array(0),
+      }),
+    } as any
+
+    const adapter = createAntigravityAdapter(fake.session, {
+      nativeTools: true,
+      resolveAttachments: () => mockAttachments,
     })
+
+    const messages = [
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool-call',
+            id: 'call_degraded_1',
+            name: 'read_image',
+            arguments: '{}',
+            thoughtSignature: 'sig-test',
+          },
+        ],
+      },
+      {
+        id: 't1',
+        role: 'tool',
+        toolCallId: 'call_degraded_1',
+        content: [
+          { type: 'text', text: 'Read error log' },
+          {
+            type: 'image',
+            attachment: { attachmentId: 'att-empty', name: 'empty.png' },
+          },
+          {
+            type: 'image',
+            attachment: { name: 'cloud.png' },
+            offloaded: true,
+          },
+        ],
+      },
+    ] as any
+
+    await collect(adapter.stream({
+      provider: 'agy-google-antigravity',
+      model: 'gemini-3.8-flash',
+      messages,
+      tools: [{ name: 'read_image', description: 'read img', parameters: { type: 'object' } }],
+    } as any))
+
+    const contents = fake.chatBodies[0].contents
+    const toolContent = contents[1]
+    expect(toolContent.parts).toHaveLength(1)
+    const fr = (toolContent.parts[0] as any).functionResponse
+    expect(fr.parts).toBeUndefined()
+    expect(fr.response.result).toBe('Read error log\n[Image: empty.png]\n[Image: cloud.png (offloaded)]')
+  })
+
+  it('handles pure image tool result without text description', async () => {
+    const fake = fakeSession({ chat: [{ type: 'text', text: 'Inspected pure image' }, { type: 'finish', reason: 'STOP' }] })
+    const imageBytes = Uint8Array.from([0x12, 0x34])
+    const mockAttachments = {
+      readImage: async () => ({
+        ref: { mediaType: 'image/png' },
+        data: imageBytes,
+      }),
+    } as any
+
+    const adapter = createAntigravityAdapter(fake.session, {
+      nativeTools: true,
+      resolveAttachments: () => mockAttachments,
+    })
+
+    const messages = [
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool-call',
+            id: 'call_pure_img_1',
+            name: 'capture_screen',
+            arguments: '{}',
+            thoughtSignature: 'sig-test',
+          },
+        ],
+      },
+      {
+        id: 't1',
+        role: 'tool',
+        toolCallId: 'call_pure_img_1',
+        content: [
+          {
+            type: 'image',
+            attachment: { attachmentId: 'att-shot', name: 'screen.png' },
+          },
+        ],
+      },
+    ] as any
+
+    await collect(adapter.stream({
+      provider: 'agy-google-antigravity',
+      model: 'gemini-3.8-flash',
+      messages,
+      tools: [{ name: 'capture_screen', description: 'capture screen', parameters: { type: 'object' } }],
+    } as any))
+
+    const contents = fake.chatBodies[0].contents
+    const toolContent = contents[1]
+    expect(toolContent.parts).toHaveLength(1)
+    const fr = (toolContent.parts[0] as any).functionResponse
+    expect(fr.response.result).toBe('')
+    expect(fr.parts).toHaveLength(1)
+    expect(fr.parts[0].inlineData.mimeType).toBe('image/png')
+  })
+
+  it('batches consecutive parallel tool messages into a single user turn', async () => {
+    const fake = fakeSession({ chat: [{ type: 'text', text: 'Done parallel tools' }, { type: 'finish', reason: 'STOP' }] })
+    const imgBytes = Uint8Array.from([0x99])
+    const mockAttachments = {
+      readImage: async () => ({
+        ref: { mediaType: 'image/jpeg' },
+        data: imgBytes,
+      }),
+    } as any
+
+    const adapter = createAntigravityAdapter(fake.session, {
+      nativeTools: true,
+      resolveAttachments: () => mockAttachments,
+    })
+
+    const messages = [
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool-call',
+            id: 'call_p1',
+            name: 'tool_one',
+            arguments: '{}',
+            thoughtSignature: 'sig-1',
+          },
+          {
+            type: 'tool-call',
+            id: 'call_p2',
+            name: 'tool_two',
+            arguments: '{}',
+            thoughtSignature: 'sig-2',
+          },
+        ],
+      },
+      {
+        id: 't1',
+        role: 'tool',
+        toolCallId: 'call_p1',
+        content: [{ type: 'text', text: 'Output from tool one' }],
+      },
+      {
+        id: 't2',
+        role: 'tool',
+        toolCallId: 'call_p2',
+        content: [
+          { type: 'text', text: 'Output from tool two' },
+          {
+            type: 'image',
+            attachment: { attachmentId: 'att-p2', name: 'tool_two.jpg' },
+          },
+        ],
+      },
+    ] as any
+
+    await collect(adapter.stream({
+      provider: 'agy-google-antigravity',
+      model: 'gemini-3.8-flash',
+      messages,
+      tools: [
+        { name: 'tool_one', description: 't1', parameters: { type: 'object' } },
+        { name: 'tool_two', description: 't2', parameters: { type: 'object' } },
+      ],
+    } as any))
+
+    const contents = fake.chatBodies[0].contents
+    expect(contents).toHaveLength(2)
+    const toolContent = contents[1]
+    expect(toolContent.role).toBe('user')
+    expect(toolContent.parts).toHaveLength(2)
+    expect((toolContent.parts[0] as any).functionResponse.name).toBe('tool_one')
+    expect((toolContent.parts[1] as any).functionResponse.name).toBe('tool_two')
+    expect((toolContent.parts[1] as any).functionResponse.parts).toHaveLength(1)
+  })
+
+  it('degrades orphaned tool result with images to user turn gracefully', async () => {
+    const fake = fakeSession({ chat: [{ type: 'text', text: 'Handled orphan' }, { type: 'finish', reason: 'STOP' }] })
+    const imgBytes = Uint8Array.from([0x55])
+    const mockAttachments = {
+      readImage: async () => ({
+        ref: { mediaType: 'image/png' },
+        data: imgBytes,
+      }),
+    } as any
+
+    const adapter = createAntigravityAdapter(fake.session, {
+      nativeTools: true,
+      resolveAttachments: () => mockAttachments,
+    })
+
+    const messages = [
+      {
+        id: 't_orphan',
+        role: 'tool',
+        toolCallId: 'call_missing_from_history',
+        content: [
+          { type: 'text', text: 'Orphaned message' },
+          {
+            type: 'image',
+            attachment: { attachmentId: 'att-orphan', name: 'orphan.png' },
+          },
+        ],
+      },
+    ] as any
+
+    await collect(adapter.stream({
+      provider: 'agy-google-antigravity',
+      model: 'gemini-3.8-flash',
+      messages,
+      tools: [],
+    } as any))
+
+    const contents = fake.chatBodies[0].contents
+    expect(contents).toHaveLength(1)
+    const userContent = contents[0]
+    expect(userContent.role).toBe('user')
+    expect(userContent.parts).toHaveLength(2)
+    expect((userContent.parts[0] as any).text).toBe('Orphaned message')
+    expect((userContent.parts[1] as any).inlineData).toBeDefined()
   })
 })

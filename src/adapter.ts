@@ -118,11 +118,22 @@ async function convertMessages(
   const pendingCallIds = new Map<string, string[]>()
   for (const message of messages) {
     if (message.role === 'tool') {
-      const responseText = textOf(message.content)
-      const imageBlocks = message.content.filter(block => block.type === 'image')
-      const imageParts = imageBlocks.length > 0
-        ? await userPartsOf(imageBlocks, attachments, signal)
-        : []
+      let responseText = textOf(message.content)
+      const inlineImageParts: GeminiPart[] = []
+
+      for (const block of message.content) {
+        if (block.type === 'image') {
+          const image = await resolveImageBlock(block, attachments, signal)
+          if (image.type === 'inline') {
+            inlineImageParts.push({
+              inlineData: { mimeType: image.mimeType, data: image.data },
+            })
+          } else {
+            responseText = responseText.length > 0 ? `${responseText}\n${image.text}` : image.text
+          }
+        }
+      }
+
       const queue = pendingCallIds.get(message.toolCallId)
       const id = queue !== undefined && queue.length > 0 ? queue.shift() : undefined
       if (id === undefined) {
@@ -130,23 +141,31 @@ async function convertMessages(
         // functionResponse, so keep the payload legal by degrading it to plain text.
         const parts: GeminiPart[] = []
         if (responseText.length > 0) parts.push({ text: responseText })
-        parts.push(...imageParts)
+        parts.push(...inlineImageParts)
         if (parts.length > 0) contents.push({ role: 'user', parts })
         continue
       }
-      contents.push({
-        role: 'user',
-        parts: [
-          {
-            functionResponse: {
-              name: emittedNames.get(id) ?? toolNames.get(message.toolCallId) ?? 'tool',
-              id,
-              response: { result: responseText },
-            },
-          },
-          ...imageParts,
-        ],
-      })
+
+      const functionResponsePart: GeminiPart = {
+        functionResponse: {
+          name: emittedNames.get(id) ?? toolNames.get(message.toolCallId) ?? 'tool',
+          id,
+          response: { result: responseText },
+          ...(inlineImageParts.length > 0 ? { parts: inlineImageParts } : {}),
+        },
+      }
+
+      const lastContent = contents.length > 0 ? contents[contents.length - 1] : undefined
+      const isBatchable = lastContent?.role === 'user'
+        && lastContent.parts.every(part => 'functionResponse' in part)
+      if (isBatchable) {
+        lastContent.parts.push(functionResponsePart)
+      } else {
+        contents.push({
+          role: 'user',
+          parts: [functionResponsePart],
+        })
+      }
       continue
     }
     if (message.role === 'assistant') {
