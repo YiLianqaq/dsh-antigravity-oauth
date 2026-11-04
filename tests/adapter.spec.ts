@@ -937,6 +937,7 @@ describe('AntigravityAdapter multimodal image input', () => {
 
     const adapter = createAntigravityAdapter(fake.session, {
       nativeTools: true,
+      nativeSearch: true,
       resolveAttachments: () => mockAttachments,
     })
 
@@ -1000,6 +1001,7 @@ describe('AntigravityAdapter multimodal image input', () => {
 
     const adapter = createAntigravityAdapter(fake.session, {
       nativeTools: true,
+      nativeSearch: true,
       resolveAttachments: () => mockAttachments,
     })
 
@@ -1058,6 +1060,7 @@ describe('AntigravityAdapter multimodal image input', () => {
 
     const adapter = createAntigravityAdapter(fake.session, {
       nativeTools: true,
+      nativeSearch: true,
       resolveAttachments: () => mockAttachments,
     })
 
@@ -1134,6 +1137,7 @@ describe('AntigravityAdapter multimodal image input', () => {
 
     const adapter = createAntigravityAdapter(fake.session, {
       nativeTools: true,
+      nativeSearch: true,
       resolveAttachments: () => mockAttachments,
     })
 
