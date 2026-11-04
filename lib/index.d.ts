@@ -89,6 +89,7 @@ type GeminiPart = {
     name: string;
     response: Record<string, unknown>;
     id?: string;
+    parts?: GeminiPart[];
   };
 } | {
   inlineData: {

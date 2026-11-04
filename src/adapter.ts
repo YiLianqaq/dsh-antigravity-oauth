@@ -118,25 +118,54 @@ async function convertMessages(
   const pendingCallIds = new Map<string, string[]>()
   for (const message of messages) {
     if (message.role === 'tool') {
-      const responseText = textOf(message.content)
+      let responseText = textOf(message.content)
+      const inlineImageParts: GeminiPart[] = []
+
+      for (const block of message.content) {
+        if (block.type === 'image') {
+          const image = await resolveImageBlock(block, attachments, signal)
+          if (image.type === 'inline') {
+            inlineImageParts.push({
+              inlineData: { mimeType: image.mimeType, data: image.data },
+            })
+          } else {
+            responseText = responseText.length > 0 ? `${responseText}\n${image.text}` : image.text
+          }
+        }
+      }
+
       const queue = pendingCallIds.get(message.toolCallId)
       const id = queue !== undefined && queue.length > 0 ? queue.shift() : undefined
       if (id === undefined) {
         // A tool result whose function call is no longer in the history cannot be sent as a bare
         // functionResponse, so keep the payload legal by degrading it to plain text.
-        if (responseText.length > 0) contents.push({ role: 'user', parts: [{ text: responseText }] })
+        const parts: GeminiPart[] = []
+        if (responseText.length > 0) parts.push({ text: responseText })
+        parts.push(...inlineImageParts)
+        if (parts.length > 0) contents.push({ role: 'user', parts })
         continue
       }
-      contents.push({
-        role: 'user',
-        parts: [{
-          functionResponse: {
-            name: emittedNames.get(id) ?? toolNames.get(message.toolCallId) ?? 'tool',
-            id,
-            response: { result: responseText },
-          },
-        }],
-      })
+
+      const functionResponsePart: GeminiPart = {
+        functionResponse: {
+          name: emittedNames.get(id) ?? toolNames.get(message.toolCallId) ?? 'tool',
+          id,
+          response: { result: responseText },
+          ...(inlineImageParts.length > 0 ? { parts: inlineImageParts } : {}),
+        },
+      }
+
+      const lastContent = contents.length > 0 ? contents[contents.length - 1] : undefined
+      const isBatchable = lastContent?.role === 'user'
+        && lastContent.parts.every(part => 'functionResponse' in part)
+      if (isBatchable) {
+        lastContent.parts.push(functionResponsePart)
+      } else {
+        contents.push({
+          role: 'user',
+          parts: [functionResponsePart],
+        })
+      }
       continue
     }
     if (message.role === 'assistant') {
