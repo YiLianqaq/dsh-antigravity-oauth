@@ -1171,4 +1171,73 @@ describe('AntigravityAdapter multimodal image input', () => {
     expect((userContent.parts[0] as any).text).toBe('Orphaned message')
     expect((userContent.parts[1] as any).inlineData).toBeDefined()
   })
+
+  it('converts tool result with multiple image blocks to multiple inlineData parts', async () => {
+    const fake = fakeSession({ chat: [{ type: 'text', text: 'Inspected multiple images' }, { type: 'finish', reason: 'STOP' }] })
+    const img1 = Uint8Array.from([0x01, 0x02])
+    const img2 = Uint8Array.from([0x03, 0x04])
+    const mockAttachments = {
+      readImage: async (ref: any) => ({
+        ref: { ...ref, mediaType: ref.mediaType ?? 'image/png' },
+        data: ref.name === 'first.png' ? img1 : img2,
+      }),
+    } as any
+
+    const adapter = createAntigravityAdapter(fake.session, {
+      nativeTools: true,
+      nativeSearch: true,
+      resolveAttachments: () => mockAttachments,
+    })
+
+    const messages = [
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool-call',
+            id: 'call_multi_img',
+            name: 'diff_images',
+            arguments: '{}',
+            thoughtSignature: 'sig-multi',
+          },
+        ],
+      },
+      {
+        id: 't1',
+        role: 'tool',
+        toolCallId: 'call_multi_img',
+        content: [
+          { type: 'text', text: 'Comparison:' },
+          {
+            type: 'image',
+            attachment: { attachmentId: 'att-1', name: 'first.png', mediaType: 'image/png' },
+          },
+          {
+            type: 'image',
+            attachment: { attachmentId: 'att-2', name: 'second.png', mediaType: 'image/png' },
+          },
+        ],
+      },
+    ] as any
+
+    await collect(adapter.stream({
+      provider: 'agy-google-antigravity',
+      model: 'gemini-3.8-flash',
+      messages,
+      tools: [{ name: 'diff_images', description: 'diff images', parameters: { type: 'object' } }],
+    } as any))
+
+    const contents = fake.chatBodies[0].contents
+    expect(contents).toHaveLength(2)
+    const toolContent = contents[1]
+    expect(toolContent.role).toBe('user')
+    expect(toolContent.parts).toHaveLength(1)
+    const fr = (toolContent.parts[0] as any).functionResponse
+    expect(fr.name).toBe('diff_images')
+    expect(fr.response.result).toBe('Comparison:')
+    expect(fr.parts).toHaveLength(2)
+    expect(fr.parts[0].inlineData.data).toBe(Buffer.from(img1).toString('base64'))
+    expect(fr.parts[1].inlineData.data).toBe(Buffer.from(img2).toString('base64'))
+  })
 })
