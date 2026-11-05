@@ -1,4 +1,11 @@
-import { LlmAdapter, LlmError, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
+import {
+  IMAGE_OFFLOAD_REQUIRED_CODE,
+  LlmAdapter,
+  LlmError,
+  ReasoningEffortId,
+  ToolCallId,
+  requiredImageOffload,
+} from '@deepseek-ai/dsh-llm'
 import type {
   ContentBlock,
   GenerateOptions,
@@ -9,7 +16,7 @@ import type {
   TokenUsage,
 } from '@deepseek-ai/dsh-llm'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
-import { resolveImageBlock } from './image-input.ts'
+import { resolveImageBlock, type ImageAccessResolver } from './image-input.ts'
 import { HARNESS_ROUTE, STREAM_IDLE_TIMEOUT_MS } from './ids.ts'
 import {
   DEFAULT_REASONING_EFFORT,
@@ -57,6 +64,16 @@ export interface AntigravityAdapterOptions {
   nativeSearch: boolean
   streamIdleTimeoutMs?: number
   resolveAttachments?: () => AttachmentStore | undefined
+  resolveImageAccess?: ImageAccessResolver
+}
+
+// Google documents a 20 MB limit for one inline request. The rest stays free for text and history.
+const IMAGE_REQUEST_BUDGET = { representation: 'base64', maxBytes: 16_000_000 } as const
+
+// `bytes` is required on a durable ref. A malformed one counts as zero, because NaN would make
+// every image look over the budget and the harness would offload them all.
+function imageBytesOf(ref: { bytes?: unknown }): number {
+  return typeof ref.bytes === 'number' && Number.isFinite(ref.bytes) && ref.bytes > 0 ? ref.bytes : 0
 }
 
 function effortOf(options: GenerateOptions): ReasoningEffort {
@@ -78,6 +95,7 @@ async function userPartsOf(
   blocks: readonly ContentBlock[],
   attachments?: AttachmentStore,
   signal?: AbortSignal,
+  resolveAccess?: ImageAccessResolver,
 ): Promise<GeminiPart[]> {
   const parts: GeminiPart[] = []
   for (const block of blocks) {
@@ -86,7 +104,7 @@ async function userPartsOf(
       continue
     }
     if (block.type === 'image') {
-      const image = await resolveImageBlock(block, attachments, signal)
+      const image = await resolveImageBlock(block, attachments, signal, resolveAccess)
       parts.push(image.type === 'inline'
         ? { inlineData: { mimeType: image.mimeType, data: image.data } }
         : { text: image.text })
@@ -100,6 +118,7 @@ async function convertMessages(
   thoughtSignatures: ReadonlyMap<string, string>,
   attachments?: AttachmentStore,
   signal?: AbortSignal,
+  resolveAccess?: ImageAccessResolver,
 ): Promise<GeminiContent[]> {
   const toolNames = new Map<string, string>()
   for (const message of messages) {
@@ -123,7 +142,7 @@ async function convertMessages(
 
       for (const block of message.content) {
         if (block.type === 'image') {
-          const image = await resolveImageBlock(block, attachments, signal)
+          const image = await resolveImageBlock(block, attachments, signal, resolveAccess)
           if (image.type === 'inline') {
             inlineImageParts.push({
               inlineData: { mimeType: image.mimeType, data: image.data },
@@ -211,7 +230,7 @@ async function convertMessages(
       continue
     }
     if (message.role === 'user') {
-      const parts = await userPartsOf(message.content, attachments, signal)
+      const parts = await userPartsOf(message.content, attachments, signal, resolveAccess)
       if (parts.length > 0) contents.push({ role: 'user', parts })
     }
   }
@@ -326,11 +345,24 @@ export class AntigravityAdapter extends LlmAdapter {
     const effort = effortOf(options)
     const wire = routeChatModel(options.model, effort)
     const functions = functionsFor(options, this.options.nativeSearch)
+    const offloadImages = requiredImageOffload(
+      options.messages,
+      IMAGE_REQUEST_BUDGET,
+      block => imageBytesOf(block.attachment),
+    )
+    if (offloadImages > 0) {
+      throw new LlmError(
+        `Request images exceed the route budget; ${offloadImages} more oldest occurrence(s) must be offloaded.`,
+        IMAGE_OFFLOAD_REQUIRED_CODE,
+        { offloadImages },
+      )
+    }
     const contents = await convertMessages(
       options.messages,
       this.session.thoughtSignatures,
       this.options.resolveAttachments?.(),
       options.signal,
+      this.options.resolveImageAccess,
     )
     const input: ChatGenerateInput = {
       kind: 'chat',
